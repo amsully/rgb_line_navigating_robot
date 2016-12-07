@@ -3,6 +3,7 @@
 #include <iostream>
 #include <ros/ros.h>
 #include <std_msgs/String.h>
+#include <sensor_msgs/Image.h> 
 #include <sstream>
 
 #include <eigen3/Eigen/Dense>
@@ -128,11 +129,17 @@ void InitMarkers() {
   plan_marker_.color.b = 0.0;
 }
 
+void RGBImageCallback(const sensor_msgs::Image& raw_image){
+  cout << "Hello World";
+}
+
 int main(int argc, char **argv) {
   InitMarkers();
 
   ros::init(argc, argv, "rgb_line_navigating_robot");
   ros::NodeHandle n;
+
+  ros::Subscriber rgb_raw_subscriber = n.subscribe("/camera/rgb/image_raw", 1, RGBImageCallback);
 
   ros::spin();
   return 0;
