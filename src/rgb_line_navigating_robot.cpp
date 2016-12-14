@@ -129,7 +129,11 @@ void InitMarkers() {
   plan_marker_.color.b = 0.0;
 }
 
-void RGBImageCallback(const sensor_msgs::Image& raw_image){
+void AstraRGBImageCallback(const sensor_msgs::Image& raw_image){
+  cout << "Hello World";
+}
+
+void USBCamRGBImageCallback(const sensor_msgs::Image& raw_image){
   cout << "Hello World";
 }
 
@@ -139,7 +143,11 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "rgb_line_navigating_robot");
   ros::NodeHandle n;
 
-  ros::Subscriber rgb_raw_subscriber = n.subscribe("/camera/rgb/image_raw", 1, RGBImageCallback);
+  // Astra Launch
+  ros::Subscriber astra_rgb_raw_subscriber = n.subscribe("/camera/rgb/image_raw", 1, AstraRGBImageCallback);
+
+  // usb_cam
+  ros::Subscriber ubs_cam_rgb_raw_subscriber = n.subscribe("/usb_cam/image_raw", 1, USBCamRGBImageCallback);
 
   ros::spin();
   return 0;
