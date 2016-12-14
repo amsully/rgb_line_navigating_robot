@@ -11,6 +11,23 @@
 #include <nav_msgs/Odometry.h>
 #include <visualization_msgs/MarkerArray.h>
 
+#include <stdio.h>
+#include <image_transport/image_transport.h>
+#include <cv_bridge/cv_bridge.h>
+#include <sensor_msgs/image_encodings.h>
+#include <opencv2/imgproc/imgproc.hpp>     //make sure to include the relevant headerfiles
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv/cv.h>
+#include <opencv/highgui.h>
+// #include <cvaux.h>
+#include <opencv/cvaux.h>
+#include <math.h>
+// #include <cxcore.h>
+#include <opencv/cxcore.h>
+#include <geometry_msgs/Twist.h>
+#include "boost/thread/mutex.hpp"
+#include "boost/thread/thread.hpp"
+
 using Eigen::Vector2f;
 using geometry_msgs::Point;
 using std::fabs;
@@ -21,8 +38,24 @@ using std::vector;
 using visualization_msgs::Marker;
 using visualization_msgs::MarkerArray;
 
+// Setting Robot Vars.
+static const char WINDOW[] = "Image Window";
+
+float velocity_angular, velocity_linear, new_velocity_angular, new_velocity_linear;
+float d_angular, d_linear, d_t = 0.5;
+float horizontalCount;
+
+// Initial Robot Vars.
+double linear_v = 0.05;
+double angular_v = 0.05;
+double linear_scale = 1.0;
+double angular_scale = 1.0; // for decreasing/increasing speed
+double left_threshold = 150;
+double right_threshold = 450;
+
 // Publisher for marker messages.
 ros::Publisher markers_publisher_;
+ros::Publisher cmd_publisher_;
 
 // Markers for visualization.
 Marker vertices_marker_;
@@ -129,19 +162,43 @@ void InitMarkers() {
   plan_marker_.color.b = 0.0;
 }
 
+void processImage(const sensor_msgs::ImageConstPtr& raw_image){
+
+	//cv_bridge::CvBridge bridge = cv_bridge::CvBridge();
+	//IplImage* img = bridge.imgMsgToCv(msg,"rgb8"); 
+	// IplImage* img = cv_bridge::toCvCopy(raw_image, sensor_msgs::image_encodings::BGR8);	
+
+//	cv_bridge::CvImagePtr cv_ptr;
+//	cv_ptr = cv_bridge::toCvCopy(raw_image, sensor_msgs::image_encodings::BGR8);	
+//	IplImage img = cv_ptr->image;
+
+//	geometry_msgs::Twist velMsg;
+
+//	CvMemStorage* storage = cvCreateMemStorage(0);
+	
+	cout << raw_image;
+	
+}
+
 void AstraRGBImageCallback(const sensor_msgs::Image& raw_image){
   cout << "Hello World";
 }
 
-void USBCamRGBImageCallback(const sensor_msgs::Image& raw_image){
+void USBCamRGBImageCallback(const sensor_msgs::ImageConstPtr& raw_image){
+
+  processImage(raw_image);
   cout << "Hello World";
 }
+
 
 int main(int argc, char **argv) {
   InitMarkers();
 
   ros::init(argc, argv, "rgb_line_navigating_robot");
   ros::NodeHandle n;
+
+  cmd_publisher_ = n.advertise <geometry_msgs::Twist>("cmd_vel",1);
+
 
   // Astra Launch
   ros::Subscriber astra_rgb_raw_subscriber = n.subscribe("/camera/rgb/image_raw", 1, AstraRGBImageCallback);
