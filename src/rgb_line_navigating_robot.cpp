@@ -25,16 +25,20 @@
 // #include <cxcore.h>
 #include <opencv/cxcore.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/Vector3.h>
 #include "boost/thread/mutex.hpp"
 #include "boost/thread/thread.hpp"
 
 using Eigen::Vector2f;
+using Eigen::Vector3f;
 using geometry_msgs::Point;
 using std::fabs;
 using std::max;
 using std::atan2;
 using std::cout;
 using std::vector;
+using std::min;
+using std::max;
 using visualization_msgs::Marker;
 using visualization_msgs::MarkerArray;
 
@@ -48,10 +52,24 @@ float horizontalCount;
 // Initial Robot Vars.
 double linear_v = 0.05;
 double angular_v = 0.05;
-double linear_scale = 1.0;
-double angular_scale = 1.0; // for decreasing/increasing speed
-double left_threshold = 150;
-double right_threshold = 450;
+double max_linear_v = 0.3;
+double max_angular_v = 0.3;
+
+
+// double linear_scale = 1.0;
+// double angular_scale = 1.0; // for decreasing/increasing speed
+// double left_threshold = 150;
+// double right_threshold = 450;
+
+// Image split
+// int left_pix = 930;
+// int right_pix = 990;
+
+int right_pix = 1160;
+int left_pix = 760;
+
+// SET BASED ON ENVIRONMENT
+int GREEN = 35;
 
 // Publisher for marker messages.
 ros::Publisher markers_publisher_;
@@ -162,29 +180,64 @@ void InitMarkers() {
   plan_marker_.color.b = 0.0;
 }
 
-void processImage(const sensor_msgs::ImageConstPtr& raw_image){
+void adjustAngularVelocity(){
+  if(velocity_angular > 0){
+    velocity_angular = max(velocity_angular - angular_v, -max_angular_v) ;
+  }else{
+    velocity_angular = min(velocity_angular + angular_v, max_angular_v);
+  }
+}
 
-	//cv_bridge::CvBridge bridge = cv_bridge::CvBridge();
-	//IplImage* img = bridge.imgMsgToCv(msg,"rgb8"); 
-	// IplImage* img = cv_bridge::toCvCopy(raw_image, sensor_msgs::image_encodings::BGR8);	
+void computeCommands(int lightValues ){
 
-//	cv_bridge::CvImagePtr cv_ptr;
-//	cv_ptr = cv_bridge::toCvCopy(raw_image, sensor_msgs::image_encodings::BGR8);	
-//	IplImage img = cv_ptr->image;
+  if(fabs(lightValues - GREEN) < 5 ){
+    // I think we are good., continue?
+  }else{
+    adjustAngularVelocity();
+  }
 
-//	geometry_msgs::Twist velMsg;
+  geometry_msgs::Vector3 angular;
+  geometry_msgs::Vector3 linear;
+  angular.x = velocity_angular;
+  angular.y = 0;
+  angular.z = 0;
+  linear.x = velocity_linear;
+  linear.y = 0; 
+  linear.z = 0;
 
-//	CvMemStorage* storage = cvCreateMemStorage(0);
+  geometry_msgs::Twist new_twist = geometry_msgs::Twist();
+  new_twist.angular = angular;
+  new_twist.linear = linear;
+
+  cmd_publisher_.publish(new_twist);
+}
+
+void processImage(const sensor_msgs::Image& raw_image){
 	
-	cout << raw_image;
-	
+  int step = raw_image.step;
+  int data_size = raw_image.data.size();
+  int rows = data_size/step;
+
+  cout << step << "\n"; 
+  cout << rows << "\n";
+
+  int curr_val = 0;
+  int sum = 0;
+  for(size_t i = 0; i < raw_image.data.size(); ++i){
+    curr_val = raw_image.data[i];
+    sum += curr_val;
+  }
+
+  computeCommands( sum/(data_size) );
+  cout << "light: " << sum/(data_size) << "\n";
+  // sleep(1);
 }
 
 void AstraRGBImageCallback(const sensor_msgs::Image& raw_image){
   cout << "Hello World";
 }
 
-void USBCamRGBImageCallback(const sensor_msgs::ImageConstPtr& raw_image){
+void USBCamRGBImageCallback(const sensor_msgs::Image& raw_image){
 
   processImage(raw_image);
   cout << "Hello World";
