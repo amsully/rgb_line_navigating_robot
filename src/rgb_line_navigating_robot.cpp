@@ -42,24 +42,24 @@ using std::max;
 using visualization_msgs::Marker;
 using visualization_msgs::MarkerArray;
 
-// Setting Robot Vars.
-static const char WINDOW[] = "Image Window";
+// TESTING PARAMS
+bool show_light_reading =false;
 
-float velocity_angular, velocity_linear, new_velocity_angular, new_velocity_linear;
-float d_angular, d_linear, d_t = 0.5;
-float horizontalCount;
+// SETTING PARAMS
+bool run_simpleProcessImage = false;
+bool run_binaryProcessImage = true;
+
+// Global params
+float velocity_angular, velocity_linear;
+int currentLightValue;
+
 
 // Initial Robot Vars.
 double linear_v = 0.05;
 double angular_v = 0.05;
 double max_linear_v = 0.3;
-double max_angular_v = 0.3;
+double max_angular_v = 0.5;
 
-
-// double linear_scale = 1.0;
-// double angular_scale = 1.0; // for decreasing/increasing speed
-// double left_threshold = 150;
-// double right_threshold = 450;
 
 // Image split
 // int left_pix = 930;
@@ -69,7 +69,12 @@ int right_pix = 1160;
 int left_pix = 760;
 
 // SET BASED ON ENVIRONMENT
-int GREEN = 35;
+int RANGE = 3;
+int GREEN = 51;
+
+int angularAdjustments = 0;
+int maxAngularAdjustments = 50;
+bool handlingEvent = false;
 
 // Publisher for marker messages.
 ros::Publisher markers_publisher_;
@@ -121,86 +126,28 @@ void DrawLine(const Vector2f& p1,
   marker->points.push_back(VectorToPoint(p2));
 }
 
-// Initialize all markers.
-void InitMarkers() {
-  vertices_marker_.header.frame_id = "map";
-  vertices_marker_.id = 1;
-  vertices_marker_.type = Marker::POINTS;
-  vertices_marker_.action = Marker::MODIFY;
-  vertices_marker_.scale.x = 0.2;
-  vertices_marker_.scale.y = 0.2;
-  vertices_marker_.color.a = 1.0;
-  vertices_marker_.color.r = 0.0;
-  vertices_marker_.color.g = 0.0;
-  vertices_marker_.color.b = 1.0;
-
-
-  qrand_marker_.header.frame_id = "map";
-  qrand_marker_.id = 2;
-  qrand_marker_.type = Marker::POINTS;
-  qrand_marker_.action = Marker::MODIFY;
-  qrand_marker_.scale.x = 0.2;
-  qrand_marker_.scale.y = 0.2;
-  qrand_marker_.color.a = 1.0;
-  qrand_marker_.color.r = 1.0;
-  qrand_marker_.color.g = 0.0;
-  qrand_marker_.color.b = 0.0;
-
-  edges_marker_.header.frame_id = "map";
-  edges_marker_.id = 3;
-  edges_marker_.type = Marker::LINE_LIST;
-  edges_marker_.action = Marker::MODIFY;
-  edges_marker_.scale.x = 0.05;
-  edges_marker_.scale.y = 0.05;
-  edges_marker_.color.a = 1.0;
-  edges_marker_.color.r = 0.0;
-  edges_marker_.color.g = 1.0;
-  edges_marker_.color.b = 0.0;
-
-  map_marker_.header.frame_id = "map";
-  map_marker_.id = 4;
-  map_marker_.type = Marker::LINE_LIST;
-  map_marker_.action = Marker::MODIFY;
-  map_marker_.scale.x = 0.05;
-  map_marker_.scale.y = 0.05;
-  map_marker_.color.a = 1.0;
-  map_marker_.color.r = 1.0;
-  map_marker_.color.g = 1.0;
-  map_marker_.color.b = 1.0;
-
-  plan_marker_.header.frame_id = "map";
-  plan_marker_.id = 5;
-  plan_marker_.type = Marker::LINE_LIST;
-  plan_marker_.action = Marker::MODIFY;
-  plan_marker_.scale.x = 0.05;
-  plan_marker_.scale.y = 0.05;
-  plan_marker_.color.a = 1.0;
-  plan_marker_.color.r = 1.0;
-  plan_marker_.color.g = 0.0;
-  plan_marker_.color.b = 0.0;
+void safeAngularDecrement(){
+  velocity_angular =  max(velocity_angular - angular_v, -max_angular_v) ;
 }
 
-void adjustAngularVelocity(){
-  if(velocity_angular > 0){
-    velocity_angular = max(velocity_angular - angular_v, -max_angular_v) ;
-  }else{
-    velocity_angular = min(velocity_angular + angular_v, max_angular_v);
-  }
+void safeAngularIncrement(){
+  velocity_angular = min(velocity_angular + angular_v, max_angular_v);
 }
 
-void computeCommands(int lightValues ){
+void safeLinearDecrement(){
+  velocity_linear =  max(velocity_linear - linear_v, -max_linear_v) ;
+}
 
-  if(fabs(lightValues - GREEN) < 5 ){
-    // I think we are good., continue?
-  }else{
-    adjustAngularVelocity();
-  }
+void safeLinearIncrement(){
+  velocity_linear = min(velocity_linear + linear_v, max_linear_v);
+}
 
+void publishTwist(){
   geometry_msgs::Vector3 angular;
   geometry_msgs::Vector3 linear;
-  angular.x = velocity_angular;
+  angular.z = velocity_angular;
   angular.y = 0;
-  angular.z = 0;
+  angular.x = 0;
   linear.x = velocity_linear;
   linear.y = 0; 
   linear.z = 0;
@@ -212,24 +159,123 @@ void computeCommands(int lightValues ){
   cmd_publisher_.publish(new_twist);
 }
 
-void processImage(const sensor_msgs::Image& raw_image){
+void adjustAngularVelocity(){
+  if(velocity_angular > 0){
+     safeAngularDecrement();
+  }else{
+     safeAngularIncrement();
+  }
+  angularAdjustments++;
+}
+
+// Search for line event (angular velocity only).
+void searchForLine(){
+
+	if( !(fabs(currentLightValue - GREEN) < RANGE) ){
+		cout << "search: "<< currentLightValue << "\n";
+		velocity_angular = min(velocity_angular + angular_v, max_angular_v);	
+ 	}else{
+		velocity_angular = 0;
+		angularAdjustments = 0;
+	}
+}
+
+// The default behavior of the robot when image stream is being posted.
+void generalMovement(){
+  // if(fabs(currentLightValue - GREEN) < RANGE ){
+  //   // I think we are good., continue?
+
+  // // If Robot has not seen line for specified time. Search for it.
+  // }else 
+  if(angularAdjustments > maxAngularAdjustments){
+    searchForLine();
+  }else{
+    adjustAngularVelocity();
+  }
+
+  // Publishes velocity_angular and velocity_linear.
+	cout << "pub " <<  velocity_angular << "\n";
+  publishTwist();
+
+}
+
+void computeCommands(){
+	  generalMovement();
+}
+
+void simpleProcessImage(const sensor_msgs::Image& raw_image){
 	
-  int step = raw_image.step;
   int data_size = raw_image.data.size();
-  int rows = data_size/step;
-
-  cout << step << "\n"; 
-  cout << rows << "\n";
-
   int curr_val = 0;
   int sum = 0;
+
   for(size_t i = 0; i < raw_image.data.size(); ++i){
     curr_val = raw_image.data[i];
     sum += curr_val;
   }
 
-  computeCommands( sum/(data_size) );
-  cout << "light: " << sum/(data_size) << "\n";
+ 	currentLightValue = sum/(data_size);
+	cout << "light:" << currentLightValue << "\n";
+
+  if(!show_light_reading){
+  	computeCommands();
+  }else{
+    cout << "DEBUG: show_light_reading \n";
+  }
+
+  // sleep(1);
+}
+
+void computeBinaryCommands(int leftAvg, int rightAvg){
+  velocity_linear = 0.07;
+
+  if(fabs(leftAvg - rightAvg) < 9){
+    velocity_angular = 0;
+    safeLinearIncrement();
+  }
+  if(leftAvg > rightAvg){
+    safeAngularDecrement(); // max(velocity_angular - angular_v, -max_angular_v) ;
+    safeLinearDecrement();
+
+  }else{
+    safeAngularIncrement(); // min(velocity_angular + angular_v, max_angular_v);
+    safeLinearDecrement();
+  }
+
+  publishTwist();
+}
+
+void binaryProcessImage(const sensor_msgs::Image& raw_image){
+
+  int data_size = raw_image.data.size();
+  int curr_val;
+  int rightSum = 0;
+  int leftSum = 0;
+  int step = raw_image.step;
+  for(size_t i = 0; i < raw_image.data.size(); ++i){
+    curr_val = raw_image.data[i];
+
+    if(i%step < step/2){
+      leftSum+=curr_val;
+    }else{
+      rightSum+=curr_val;
+    }
+
+  }
+
+  int rightAvg = rightSum/(data_size/2);
+  int leftAvg = leftSum/(data_size/2);
+
+
+
+  cout << "binary light:" << leftAvg << " " << rightAvg << "\n";
+
+  if(!show_light_reading){
+    computeBinaryCommands(leftAvg, rightAvg);
+  }else{
+    cout << "DEBUG: show_light_reading \n";
+  }
+
   // sleep(1);
 }
 
@@ -239,18 +285,20 @@ void AstraRGBImageCallback(const sensor_msgs::Image& raw_image){
 
 void USBCamRGBImageCallback(const sensor_msgs::Image& raw_image){
 
-  processImage(raw_image);
-  cout << "Hello World";
+  if(run_simpleProcessImage){
+    simpleProcessImage(raw_image);
+  }else if(run_binaryProcessImage){
+    binaryProcessImage(raw_image);
+  }
 }
 
 
 int main(int argc, char **argv) {
-  InitMarkers();
 
   ros::init(argc, argv, "rgb_line_navigating_robot");
   ros::NodeHandle n;
 
-  cmd_publisher_ = n.advertise <geometry_msgs::Twist>("cmd_vel",1);
+  cmd_publisher_ = n.advertise <geometry_msgs::Twist>("/mobile_base/commands/velocity",1);
 
 
   // Astra Launch
